@@ -79,6 +79,9 @@ static hpatch_BOOL _NewStream_write(const hpatch_TStreamOutput* stream,
             hpatch_TStreamOutput* stream=self->_vout->virtualStream;
             hpatch_StreamPos_t wpos=stream->streamSize-(self->_curWriteToPosEnd-writeToPos);
             check(stream->write(stream,wpos,data,data+dataSize));
+#if (_IS_NEED_FULL_APK)
+            check(Zipper_file_append_part(self->_out_newZip, data, dataSize));
+#endif // (_IS_NEED_FULL_APK)
         }else
 #endif
             check(Zipper_file_append_part(self->_out_newZip,data,dataSize));
@@ -160,12 +163,18 @@ static hpatch_BOOL _NewStream_write(const hpatch_TStreamOutput* stream,
                         assert(self->_vout->virtualStream==0); } break;
                     case kVirtualZip_out_emptyFile_cast: { // set fileSize==0
                         assert(self->_vout->virtualStream==0);
-                        _update_fileSize(self,self->_curFileIndex,0,0);
-                        isVirtualFile0Size=true; } break;
+#ifndef _IS_NEED_FULL_APK
+                        _update_fileSize(self, self->_curFileIndex, 0, 0);
+                        isVirtualFile0Size = true;
+#endif // !_IS_NEED_FULL_APK
+                    } break;
                     case kVirtualZip_out_emptyFile_uncompressed: { //set fileSize==0, need out and endVirtual
                         assert(self->_vout->virtualStream!=0);
+#ifndef _IS_NEED_FULL_APK
                         _update_fileSize(self,self->_curFileIndex,0,0);
-                        isVirtualFile0Size=true; } break;
+                        isVirtualFile0Size=true;
+#endif // !_IS_NEED_FULL_APK
+                    } break;
                     default: { check(false); } break; //error, or unknow as error
                 }
             }
@@ -316,12 +325,17 @@ static bool _copy_same_file(NewStream* self,uint32_t newFileIndex,uint32_t oldFi
                 assert(self->_vout->virtualStream==0); } break;
             case kVirtualZip_out_emptyFile_cast: { // set fileSize==0
                 assert(self->_vout->virtualStream==0);
+#ifndef _IS_NEED_FULL_APK
                 _update_fileSize(self,newFileIndex,0,0);
-                is0FileSize=true; } break;
+                is0FileSize=true; 
+#endif // !_IS_NEED_FULL_APK
+            } break;
             case kVirtualZip_out_emptyFile_uncompressed: { //set fileSize==0, need out and endVirtual
                 assert(self->_vout->virtualStream!=0);
-                _update_fileSize(self,newFileIndex,0,0);
-                is0FileSize=true;
+#ifndef _IS_NEED_FULL_APK
+                _update_fileSize(self, newFileIndex, 0, 0);
+                is0FileSize = true;
+#endif // !_IS_NEED_FULL_APK
                 isNeedDecompress=true; } break;
             default: { check(false); } break; //error, or unknow as error
         }
@@ -364,6 +378,42 @@ static bool _copy_same_file(NewStream* self,uint32_t newFileIndex,uint32_t oldFi
             }
         }
     }
+
+#if (_IS_NEED_VIRTUAL_ZIP && _IS_NEED_FULL_APK)
+    if (ty == kVirtualZip_out_emptyFile_uncompressed || ty == kVirtualZip_out_emptyFile_cast)
+    {
+        outStream = Zipper_file_append_part_as_stream(self->_out_newZip);
+        if (outStream)
+        {
+            if (entryData)
+            {
+                if (entryData->isCompressed)
+                {
+                    check(UnZipper_compressedData_decompressTo(self->_oldZip, entryData->dataStream,
+                        0, entryData->dataStream->streamSize,
+                        entryData->uncompressedSize, outStream, 0));
+                }
+                else
+                {
+                    check(UnZipper_dataStream_copyTo(self->_oldZip, entryData->dataStream,
+                        0, entryData->dataStream->streamSize, outStream, 0));
+                }
+            }
+            else
+            {
+                if (isNeedDecompress)
+                {
+                    check(UnZipper_fileData_decompressTo(self->_oldZip, oldFileIndex, outStream));
+                }
+                else
+                {
+                    check(UnZipper_fileData_copyTo(self->_oldZip, oldFileIndex, outStream));
+                }
+            }
+        }
+    }
+#endif // (_IS_NEED_VIRTUAL_ZIP && _IS_NEED_FULL_APK)
+
     
     check(Zipper_file_append_end(self->_out_newZip));
 #if (_IS_NEED_VIRTUAL_ZIP)
